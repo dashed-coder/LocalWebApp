@@ -1,6 +1,6 @@
-﻿using System.IO;
+﻿using Microsoft.Web.WebView2.Core;
+using System.IO;
 using System.Windows;
-using Microsoft.Web.WebView2.Core;
 
 namespace LocalWebApp;
 
@@ -48,6 +48,15 @@ public partial class MainWindow : Window
                 "appassets.example",
                 wwwroot,
                 CoreWebView2HostResourceAccessKind.DenyCors);
+
+            await Browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                """
+                if (location.origin === "https://appassets.example" && location.pathname === "/index.html") {
+                    history.replaceState(history.state, "", "/" + location.search + location.hash);
+                }
+                """);
+            cancellationToken.ThrowIfCancellationRequested();
+
             Browser.CoreWebView2.NavigationCompleted += Browser_NavigationCompleted;
             Browser.CoreWebView2.Navigate("https://appassets.example/index.html");
         }
