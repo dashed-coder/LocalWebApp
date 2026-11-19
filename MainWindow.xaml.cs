@@ -1,24 +1,93 @@
-﻿using System.Text;
+﻿using System.IO;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using Microsoft.Web.WebView2.Core;
 
-namespace LocalWebApp
+namespace LocalWebApp;
+
+public partial class MainWindow : Window
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
-    public partial class MainWindow : Window
+    private CancellationTokenSource? initializationCTS;
+
+    public MainWindow()
     {
-        public MainWindow()
+        InitializeComponent();
+    }
+
+    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        var wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        var indexPath = Path.Combine(wwwroot, "index.html");
+
+        if (!Directory.Exists(wwwroot))
         {
-            InitializeComponent();
+            ShowStartupError($"wwwroot が見つかりません。\n\n{wwwroot}");
+            return;
         }
+        if (!File.Exists(indexPath))
+        {
+            ShowStartupError($"index.html が見つかりません。\n\n{indexPath}");
+            return;
+        }
+
+        initializationCTS = new CancellationTokenSource();
+        var cancellationToken = initializationCTS.Token;
+
+        try
+        {
+            var userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LocalWebApp",
+                "WebView2");
+            var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await Browser.EnsureCoreWebView2Async(environment);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Browser.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "appassets.example",
+                wwwroot,
+                CoreWebView2HostResourceAccessKind.DenyCors);
+            Browser.CoreWebView2.NavigationCompleted += Browser_NavigationCompleted;
+            Browser.CoreWebView2.Navigate("https://appassets.example/index.html");
+        }
+        catch (OperationCanceledException)
+        {
+            // ウィンドウ閉じられた
+        }
+        catch (WebView2RuntimeNotFoundException)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+                ShowStartupError("Microsoft Edge WebView2 Runtime が見つかりません。インストールしてから再実行してください。");
+        }
+        catch (Exception ex)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+                ShowStartupError($"WebView2 の初期化に失敗しました。\n\n{ex.Message}");
+        }
+    }
+
+    private void Browser_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        Browser.CoreWebView2.NavigationCompleted -= Browser_NavigationCompleted;
+        if (!e.IsSuccess && initializationCTS?.IsCancellationRequested != true)
+            ShowStartupError($"ページを表示できませんでした。\n\n{e.WebErrorStatus}");
+    }
+
+    private void ShowStartupError(string message)
+    {
+        MessageBox.Show(this, message, "LocalWebApp", MessageBoxButton.OK, MessageBoxImage.Error);
+        Close();
+    }
+
+    private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+    {
+        initializationCTS?.Cancel();
+    }
+
+    private void Window_Closed(object? sender, EventArgs e)
+    {
+        initializationCTS?.Dispose();
+        Browser.Dispose();
     }
 }
